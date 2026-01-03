@@ -1,207 +1,219 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from datetime import timedelta
+import requests  # <--- NEW: To access Yahoo's search API
 from sklearn.linear_model import LinearRegression
 import numpy as np
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="StockValue AI", page_icon="📈", layout="centered")
 
-# --- 2. CUSTOM STYLING (BIG VERDICT) ---
+# --- 2. CUSTOM CSS FOR "BIG VERDICT" ---
 st.markdown("""
 <style>
-    /* Main container styling */
+    /* Clean container look */
     .metric-container {
         background-color: #f0f2f6;
         padding: 15px;
         border-radius: 10px;
         margin-bottom: 10px;
     }
-    
-    /* BIG VERDICT BANNERS */
+    /* THE BIG VERDICT BANNER */
     .verdict-box {
-        padding: 20px;
-        border-radius: 12px;
+        padding: 25px;
+        border-radius: 15px;
         text-align: center;
-        margin-bottom: 20px;
+        margin: 20px 0;
         color: white;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 6px 10px rgba(0,0,0,0.15);
+        border: 2px solid white;
     }
-    .verdict-green { background-color: #28a745; } /* Green for Undervalued */
-    .verdict-red { background-color: #dc3545; }   /* Red for Overvalued */
-    
-    .verdict-title { font-size: 24px; font-weight: bold; margin: 0; }
-    .verdict-sub { font-size: 18px; margin: 5px 0 0 0; opacity: 0.9; }
+    .verdict-green { 
+        background: linear-gradient(135deg, #28a745, #20c997); 
+    }
+    .verdict-red { 
+        background: linear-gradient(135deg, #dc3545, #ff6b6b); 
+    }
+    .verdict-title { font-size: 32px; font-weight: 800; margin: 0; letter-spacing: 1px;}
+    .verdict-sub { font-size: 20px; margin-top: 5px; opacity: 0.95; font-weight: 500;}
 
+    /* Hide default Streamlit clutter */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. SMARTER BACKEND (India Support) ---
+# --- 3. SMARTER BACKEND: AUTO-SEARCH & DATA FETCH ---
+
+# A. THE "HIDDEN" YAHOO SEARCH API (Finds ticker from name)
 @st.cache_data(ttl=3600*24)
-def get_stock_data(user_input):
-    # CLEAN INPUT
-    ticker = user_input.upper().strip()
-    
-    # SEARCH STRATEGY: 
-    # 1. Try exact match (e.g., "NVDA", "AAPL")
-    # 2. Try adding .NS (for Indian NSE, e.g., "RELIANCE" -> "RELIANCE.NS")
-    search_attempts = [ticker, f"{ticker}.NS"]
-    
-    stock = None
-    info = None
-    found_ticker = None
-    
-    for t in search_attempts:
-        try:
-            temp_stock = yf.Ticker(t)
-            temp_info = temp_stock.info
-            # Check if we actually got a price (validates the ticker)
-            if temp_info and 'currentPrice' in temp_info:
-                stock = temp_stock
-                info = temp_info
-                found_ticker = t
-                break # Stop searching if we found it
-        except Exception:
-            continue
-
-    if not stock:
-        return None
-
-    # Proceed with the found stock
+def search_ticker(query):
+    """
+    Searches Yahoo Finance for the best matching ticker.
+    Examples: 
+    - Input: "Nvidia" -> Returns: "NVDA"
+    - Input: "Reliance" -> Returns: "RELIANCE.NS"
+    """
     try:
-        current_price = info.get('currentPrice')
-        currency = info.get('currency', 'USD') # Get currency (USD or INR)
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers)
+        data = response.json()
         
-        # Graham Number Data
+        if 'quotes' in data and len(data['quotes']) > 0:
+            # Get the first result (most relevant)
+            best_match = data['quotes'][0]
+            return best_match['symbol']
+    except Exception:
+        pass
+    return None
+
+# B. DATA FETCHER
+@st.cache_data(ttl=3600) 
+def get_stock_data(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Validation: If no current price, the ticker is broken
+        current_price = info.get('currentPrice')
+        if not current_price:
+            return None
+
+        # Data for Graham Number
         eps = info.get('trailingEps', 0)
         bvps = info.get('bookValue', 0)
         
-        # Analyst Consensus
+        # Analyst Targets
         target_mean = info.get('targetMeanPrice', 0)
         recommendation = info.get('recommendationKey', 'none').replace('_', ' ').title()
 
-        # AI Trend (Linear Regression)
+        # Currency detection (INR vs USD)
+        currency_symbol = "₹" if info.get('currency') == "INR" else "$"
+
+        # AI Trend Prediction (Simple Linear Regression)
         history = stock.history(period="1y")
+        trend_direction = "Neutral"
+        prediction_30d = 0
+        
         if not history.empty:
             history = history.reset_index()
             history['DateOrdinal'] = pd.to_datetime(history['Date']).map(pd.Timestamp.toordinal)
             
             X = history[['DateOrdinal']].values
             y = history['Close'].values
+            
+            # Train AI
             model = LinearRegression()
             model.fit(X, y)
             
-            last_date_ordinal = X[-1][0]
-            future_date_ordinal = last_date_ordinal + 30
-            prediction_30d = model.predict([[future_date_ordinal]])[0]
-            
+            # Predict Future
+            last_date = X[-1][0]
+            future_date = last_date + 30
+            prediction_30d = model.predict([[future_date]])[0]
             trend_direction = "UP" if prediction_30d > current_price else "DOWN"
-        else:
-            prediction_30d = 0
-            trend_direction = "Neutral"
 
         return {
-            "symbol": found_ticker,
-            "name": info.get('shortName', found_ticker),
+            "symbol": ticker,
+            "name": info.get('shortName', ticker),
             "price": current_price,
-            "currency": currency,
+            "currency": currency_symbol,
             "eps": eps,
             "bvps": bvps,
-            "target_mean": target_mean,
-            "recommendation": recommendation,
+            "target": target_mean,
+            "rec": recommendation,
             "ai_pred": prediction_30d,
             "trend": trend_direction,
             "history": history
         }
 
-    except Exception as e:
+    except Exception:
         return None
 
-# --- 4. THE FRONTEND ---
+# --- 4. FRONTEND UI ---
 st.title("📈 StockValue AI")
-st.write("Free Intrinsic Value Calculator + AI Price Predictor")
+st.write("Smart Intrinsic Value Calculator (US & India)")
 
-# Input Section
-col_search, col_help = st.columns([3, 1])
-with col_search:
-    ticker_input = st.text_input("Enter Stock (e.g., NVDA, RELIANCE, TATASTEEL)", "").upper().strip()
-with col_help:
-    st.write("") # Spacer
-    st.write("") 
-    st.markdown("[🔍 Find Ticker](https://finance.yahoo.com/lookup)", unsafe_allow_html=True)
+# --- SMART SEARCH BAR ---
+user_query = st.text_input("Search Stock (e.g., 'Nvidia', 'Tata Motors', 'Zomato')", "").strip()
 
-if ticker_input:
-    with st.spinner(f"Searching for '{ticker_input}' in US & India Markets..."):
-        data = get_stock_data(ticker_input)
-
-    if data:
-        # SYMBOL & PRICE
-        st.header(f"{data['name']} ({data['symbol']})")
-        curr_symbol = "₹" if data['currency'] == "INR" else "$"
+if user_query:
+    # 1. First, find the REAL ticker code
+    with st.spinner(f"🔍 Searching market for '{user_query}'..."):
+        # Try direct search first (incase they typed NVDA)
+        real_ticker = search_ticker(user_query)
         
-        # --- THE BIG VERDICT SECTION (NEW) ---
-        st.divider()
-        st.subheader("⚖️ The Verdict")
+        # Fallback: If they typed specific Indian format (RELIANCE.NS)
+        if not real_ticker:
+            real_ticker = user_query.upper()
+
+    # 2. Fetch Data using the found ticker
+    if real_ticker:
+        data = get_stock_data(real_ticker)
         
-        # Calculate Graham Number
-        if data['eps'] > 0 and data['bvps'] > 0:
-            graham_num = (22.5 * data['eps'] * data['bvps']) ** 0.5
-            diff = ((graham_num - data['price']) / data['price']) * 100
+        if data:
+            # --- HEADER ---
+            st.markdown(f"### 🏢 {data['name']} ({data['symbol']})")
             
-            # LOGIC FOR BIG BANNER
-            if diff > 0:
-                # UNDERVALUED (GREEN)
-                st.markdown(f"""
-                <div class="verdict-box verdict-green">
-                    <p class="verdict-title">✅ UNDERVALUED</p>
-                    <p class="verdict-sub">Trading {diff:.1f}% BELOW Fair Value</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                # OVERVALUED (RED)
-                st.markdown(f"""
-                <div class="verdict-box verdict-red">
-                    <p class="verdict-title">❌ OVERVALUED</p>
-                    <p class="verdict-sub">Trading {abs(diff):.1f}% ABOVE Fair Value</p>
-                </div>
-                """, unsafe_allow_html=True)
+            # --- THE BIG VERDICT BANNER (YOUR REQUEST) ---
+            # Calculate Intrinsic Value (Graham Number)
+            if data['eps'] > 0 and data['bvps'] > 0:
+                graham_num = (22.5 * data['eps'] * data['bvps']) ** 0.5
+                diff = ((graham_num - data['price']) / data['price']) * 100
                 
-            # Detailed Numbers
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Current Price", f"{curr_symbol}{data['price']:.2f}")
-            c2.metric("True Fair Value", f"{curr_symbol}{graham_num:.2f}")
-            c3.metric("Safety Margin", f"{diff:.1f}%")
+                # Logic for Green/Red Banner
+                if diff > 10: # More than 10% Undervalued
+                    st.markdown(f"""
+                    <div class="verdict-box verdict-green">
+                        <p class="verdict-title">✅ UNDERVALUED</p>
+                        <p class="verdict-sub">Trading {diff:.1f}% BELOW Fair Value</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                elif diff < -10: # More than 10% Overvalued
+                    st.markdown(f"""
+                    <div class="verdict-box verdict-red">
+                        <p class="verdict-title">❌ OVERVALUED</p>
+                        <p class="verdict-sub">Trading {abs(diff):.1f}% ABOVE Fair Value</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info(f"⚖️ **FAIRLY VALUED:** Trading within {abs(diff):.1f}% of intrinsic value.")
+                
+                # --- DETAILED NUMBERS ---
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Current Price", f"{data['currency']}{data['price']:.2f}")
+                c2.metric("True Fair Value", f"{data['currency']}{graham_num:.2f}", help="Benjamin Graham Formula")
+                c3.metric("Safety Margin", f"{diff:.1f}%")
+
+            else:
+                st.warning("⚠️ **Hard to Value:** Company has negative earnings. Graham Formula does not apply.")
+                st.metric("Current Price", f"{data['currency']}{data['price']:.2f}")
+
+            st.divider()
+
+            # --- AI & ANALYSTS ---
+            st.subheader("🔮 Predictions")
+            k1, k2 = st.columns(2)
+            
+            with k1:
+                st.markdown("**🤖 AI Trend (30 Days)**")
+                if data['trend'] == "UP":
+                    st.success(f"📈 Forecast to Rise to **{data['currency']}{data['ai_pred']:.2f}**")
+                else:
+                    st.error(f"📉 Forecast to Drop to **{data['currency']}{data['ai_pred']:.2f}**")
+            
+            with k2:
+                st.markdown("**🤵 Analyst Consensus**")
+                if data['target'] and data['target'] > 0:
+                    st.info(f"Target: **{data['currency']}{data['target']}** ({data['rec']})")
+                else:
+                    st.write("No analyst targets available.")
+
+            # --- CHART ---
+            st.subheader("📊 1-Year Price Action")
+            st.line_chart(data['history'].set_index('Date')['Close'])
             
         else:
-            st.warning("⚠️ Cannot calculate Fair Value (Negative Earnings). This is often a risky sign.")
-            st.metric("Current Price", f"{curr_symbol}{data['price']:.2f}")
-
-        # --- AI & ANALYSTS ---
-        st.divider()
-        st.subheader("🔮 AI & Wall St. Prediction")
-        
-        ac1, ac2 = st.columns(2)
-        with ac1:
-            st.markdown("**🤖 AI Trend (30 Days)**")
-            if data['trend'] == "UP":
-                st.success(f"📈 Bullish: Forecast to hit **{curr_symbol}{data['ai_pred']:.2f}**")
-            else:
-                st.error(f"📉 Bearish: Forecast to drop to **{curr_symbol}{data['ai_pred']:.2f}**")
-                
-        with ac2:
-            st.markdown("**🤵 Wall St. Consensus**")
-            st.info(f"Target: **{curr_symbol}{data['target_mean']}** ({data['recommendation']})")
-
-        # --- CHART ---
-        st.line_chart(data['history'].set_index('Date')['Close'])
-            
+            st.error(f"❌ Found ticker '{real_ticker}' but could not fetch data. It might be delisted.")
     else:
-        st.error(f"❌ Could not find stock '{ticker_input}'.")
-        st.info("💡 **Tip:** Use Ticker Symbols.")
-        st.markdown("""
-        * **US Stocks:** Try **NVDA** (not Nvidia), **AAPL** (not Apple).
-        * **Indian Stocks:** Try **RELIANCE**, **TATASTEEL**, **HDFCBANK**.
-        """)
+        st.error("❌ Stock not found. Try typing the company name clearly.")
