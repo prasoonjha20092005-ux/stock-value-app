@@ -217,3 +217,27 @@ if user_query:
             st.error(f"❌ Found ticker '{real_ticker}' but could not fetch data. It might be delisted.")
     else:
         st.error("❌ Stock not found. Try typing the company name clearly.")
+
+# --- MONETIZATION COMPONENT ---
+def show_monetization_options(currency_symbol):
+    st.divider()
+    st.markdown("### 🚀 Take Action")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    # OPTION C: Education (Amazon)
+    with col3:
+        st.success("📚 **Learn the Math**")
+        https://amzn.to/4jlK6gE
+        st.markdown("[**Buy 'Intelligent Investor'**](#) \n\n The book Warren Buffett recommends.")
+
+    st.caption("Transparency: We may earn a commission if you use this link, at no extra cost to you.")
+
+st.divider()
+st.subheader("📩 Get Undervalued Stocks Weekly")
+email = st.text_input("Enter your email to get our top 5 picks every Monday:", placeholder="you@example.com")
+if st.button("Subscribe Free"):
+    # In a real app, save this to a database. 
+    # For now, just log it or tell them it's coming soon.
+    st.success("Thanks! You are on the list.")
+    # You can use a tool like 'ConvertKit' or 'Mailchimp' forms here easily.
