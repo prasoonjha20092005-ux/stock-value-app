@@ -228,8 +228,7 @@ def show_monetization_options(currency_symbol):
     # OPTION C: Education (Amazon)
     with col3:
         st.success("📚 **Learn the Math**")
-        https://amzn.to/4jlK6gE
-        st.markdown("[**Buy 'Intelligent Investor'**](#) \n\n The book Warren Buffett recommends.")
+        st.markdown("[**Buy 'Intelligent Investor'**](https://amzn.to/4jlK6gE) \n\n The book Warren Buffett recommends.")
 
     st.caption("Transparency: We may earn a commission if you use this link, at no extra cost to you.")
 
@@ -241,3 +240,4 @@ if st.button("Subscribe Free"):
     # For now, just log it or tell them it's coming soon.
     st.success("Thanks! You are on the list.")
     # You can use a tool like 'ConvertKit' or 'Mailchimp' forms here easily.
+
