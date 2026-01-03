@@ -223,7 +223,7 @@ def show_monetization_options(currency_symbol):
     st.divider()
     st.markdown("### 🚀 Take Action")
     
-    col1, col2, col3 = st.columns(3)
+    col3 = st.columns(1)
     
     # OPTION C: Education (Amazon)
     with col3:
@@ -240,4 +240,5 @@ if st.button("Subscribe Free"):
     # For now, just log it or tell them it's coming soon.
     st.success("Thanks! You are on the list.")
     # You can use a tool like 'ConvertKit' or 'Mailchimp' forms here easily.
+
 
