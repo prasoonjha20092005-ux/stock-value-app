@@ -248,4 +248,19 @@ if ticker:
                  st.markdown("[**Open Robinhood Account**](#) \n\n Get a free stock.")
         
         with m2:
-             st.success("📚 **
+             st.success("📚 **Learn the Math**")
+             # YOUR LINK IS HERE (Correctly Quoted)
+             st.markdown("[**Buy 'The Intelligent Investor'**](https://amzn.to/4jlK6gE) \n\n The book Warren Buffett recommends.")
+        
+        st.caption("Transparency: We may earn a commission if you use these links.")
+
+    else:
+        st.error(f"Could not load data for '{ticker}'. API might be busy or ticker is invalid.")
+else:
+    # Landing page info
+    if not search_query:
+        st.info("👆 Enter a stock to begin.")
+        st.subheader("📩 Get Undervalued Stocks Weekly")
+        email = st.text_input("Enter email for top 5 picks:", placeholder="you@example.com")
+        if st.button("Subscribe Free"):
+            st.success("Thanks! You are on the list.")
